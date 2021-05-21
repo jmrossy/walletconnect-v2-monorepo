@@ -30,6 +30,7 @@ import {
   RELAYER_DEFAULT_PROTOCOL,
   FIVE_MINUTES,
   THIRTY_SECONDS,
+  RELAYER_EVENTS,
 } from "../constants";
 
 export class Engine extends IEngine {
@@ -79,7 +80,7 @@ export class Engine extends IEngine {
   }
 
   get values(): SequenceTypes.Settled[] {
-    return this.sequence.settled.values.map(x => x.data);
+    return this.sequence.settled.values.map(x => x.sequence);
   }
 
   public create(params?: SequenceTypes.CreateParams): Promise<SequenceTypes.Settled> {
@@ -102,12 +103,12 @@ export class Engine extends IEngine {
         clearTimeout(timeout);
         return reject(e);
       }
-      this.sequence.pending.on(
+      this.sequence.client.events.on(
         SUBSCRIPTION_EVENTS.updated,
         async (updatedEvent: SubscriptionEvent.Updated<SequenceTypes.Pending>) => {
-          if (pending.topic !== updatedEvent.data.topic) return;
-          if (isSequenceResponded(updatedEvent.data)) {
-            const outcome = updatedEvent.data.outcome;
+          if (pending.topic !== updatedEvent.sequence.topic) return;
+          if (isSequenceResponded(updatedEvent.sequence)) {
+            const outcome = updatedEvent.sequence.outcome;
             clearTimeout(timeout);
             if (isSequenceFailed(outcome)) {
               try {
@@ -259,7 +260,7 @@ export class Engine extends IEngine {
         this.sequence.logger.error(error.message);
         reject(error.message);
       }, maxTimeout);
-      this.sequence.events.on(
+      this.sequence.client.events.on(
         this.sequence.config.events.response,
         (responseEvent: SequenceTypes.ResponseEvent) => {
           if (params.topic !== responseEvent.topic) return;
@@ -359,7 +360,7 @@ export class Engine extends IEngine {
     return settled;
   }
 
-  public async onResponse(payloadEvent: SubscriptionEvent.Payload): Promise<void> {
+  public async onResponse(payloadEvent: SequenceTypes.PayloadEvent): Promise<void> {
     const { topic, payload } = payloadEvent;
     this.sequence.logger.debug(`Receiving ${this.sequence.context} response`);
     this.sequence.logger.trace({ type: "method", method: "onResponse", topic, payload });
@@ -425,7 +426,7 @@ export class Engine extends IEngine {
     }
   }
 
-  public async onAcknowledge(payloadEvent: SubscriptionEvent.Payload): Promise<void> {
+  public async onAcknowledge(payloadEvent: SequenceTypes.PayloadEvent): Promise<void> {
     const { topic, payload } = payloadEvent;
     this.sequence.logger.debug(`Receiving ${this.sequence.context} acknowledge`);
     this.sequence.logger.trace({ type: "method", method: "onAcknowledge", topic, payload });
@@ -439,7 +440,7 @@ export class Engine extends IEngine {
     await this.sequence.pending.delete(topic, reason);
   }
 
-  public async onMessage(payloadEvent: SubscriptionEvent.Payload): Promise<void> {
+  public async onMessage(payloadEvent: SequenceTypes.PayloadEvent): Promise<void> {
     const { topic, payload } = payloadEvent;
     this.sequence.logger.debug(`Receiving ${this.sequence.context} message`);
     this.sequence.logger.trace({ type: "method", method: "onMessage", topic, payload });
@@ -477,7 +478,7 @@ export class Engine extends IEngine {
     }
   }
 
-  public async onPayload(payloadEvent: SubscriptionEvent.Payload): Promise<void> {
+  public async onPayload(payloadEvent: SequenceTypes.PayloadEvent): Promise<void> {
     const { topic, payload } = payloadEvent;
     if (isJsonRpcRequest(payload)) {
       const { id, params } = payload as JsonRpcRequest<SequenceTypes.Request>;
@@ -505,7 +506,7 @@ export class Engine extends IEngine {
     }
   }
 
-  public async onUpdate(payloadEvent: SubscriptionEvent.Payload): Promise<void> {
+  public async onUpdate(payloadEvent: SequenceTypes.PayloadEvent): Promise<void> {
     const { topic, payload } = payloadEvent;
     this.sequence.logger.debug(`Receiving ${this.sequence.context} update`);
     this.sequence.logger.trace({ type: "method", method: "onUpdate", topic, payload });
@@ -523,7 +524,7 @@ export class Engine extends IEngine {
     }
   }
 
-  public async onUpgrade(payloadEvent: SubscriptionEvent.Payload): Promise<void> {
+  public async onUpgrade(payloadEvent: SequenceTypes.PayloadEvent): Promise<void> {
     const { topic, payload } = payloadEvent;
     this.sequence.logger.debug(`Receiving ${this.sequence.context} upgrade`);
     this.sequence.logger.trace({ type: "method", method: "onUpgrade", topic, payload });
@@ -541,7 +542,7 @@ export class Engine extends IEngine {
     }
   }
 
-  protected async onNotification(event: SubscriptionEvent.Payload) {
+  protected async onNotification(event: SequenceTypes.PayloadEvent) {
     const notification = (event.payload as JsonRpcRequest<SessionTypes.Notification>).params;
     const settled = await this.sequence.settled.get(event.topic);
     await this.isNotificationAuthorized(event.topic, settled.peer, notification.type);
@@ -553,7 +554,7 @@ export class Engine extends IEngine {
     const eventName = this.sequence.config.events.notification;
     this.sequence.logger.info(`Emitting ${eventName}`);
     this.sequence.logger.debug({ type: "event", event: eventName, notificationEvent });
-    this.sequence.events.emit(eventName, notificationEvent);
+    this.sequence.client.events.emit(eventName, notificationEvent);
   }
 
   public async handleUpdate(
@@ -648,6 +649,14 @@ export class Engine extends IEngine {
     return exists;
   }
 
+  private getPendingSubscriptionTag() {
+    return `${this.sequence.context}/${this.sequence.config.status.pending}`;
+  }
+
+  private getSettledSubscriptionTag() {
+    return `${this.sequence.context}/${this.sequence.config.status.settled}`;
+  }
+
   private async onPayloadEvent(payloadEvent: SequenceTypes.PayloadEvent) {
     const { topic, payload, chainId } = payloadEvent;
     if (isJsonRpcRequest(payload)) {
@@ -661,17 +670,17 @@ export class Engine extends IEngine {
       const eventName = this.sequence.config.events.request;
       this.sequence.logger.info(`Emitting ${eventName}`);
       this.sequence.logger.debug({ type: "event", event: eventName, data: requestEvent });
-      this.sequence.events.emit(eventName, requestEvent);
+      this.sequence.client.events.emit(eventName, requestEvent);
     } else {
       const responseEvent: SequenceTypes.ResponseEvent = { topic, response: payload, chainId };
       const eventName = this.sequence.config.events.response;
       this.sequence.logger.info(`Emitting ${eventName}`);
       this.sequence.logger.debug({ type: "event", event: eventName, data: responseEvent });
-      this.sequence.events.emit(eventName, responseEvent);
+      this.sequence.client.events.emit(eventName, responseEvent);
     }
   }
 
-  private async onPendingPayloadEvent(event: SubscriptionEvent.Payload) {
+  private async onPendingPayloadEvent(event: SequenceTypes.PayloadEvent) {
     if (isJsonRpcRequest(event.payload)) {
       switch (event.payload.method) {
         case this.sequence.config.jsonrpc.approve:
@@ -691,7 +700,7 @@ export class Engine extends IEngine {
       | SubscriptionEvent.Created<SequenceTypes.Pending>
       | SubscriptionEvent.Updated<SequenceTypes.Pending>,
   ) {
-    const pending = event.data;
+    const { sequence: pending } = event;
     if (isSignalTypePairing(pending.proposal.signal)) {
       if (!(await this.sequence.client.crypto.hasKeys(pending.proposal.topic))) {
         const pairing = await this.sequence.client.pairing.settled.get(
@@ -708,7 +717,7 @@ export class Engine extends IEngine {
       const eventName = this.sequence.config.events.responded;
       this.sequence.logger.info(`Emitting ${eventName}`);
       this.sequence.logger.debug({ type: "event", event: eventName, data: pending });
-      this.sequence.events.emit(eventName, pending);
+      this.sequence.client.events.emit(eventName, pending);
       if (!isSubscriptionUpdatedEvent(event)) {
         const method = !isSequenceFailed(pending.outcome)
           ? this.sequence.config.jsonrpc.approve
@@ -722,7 +731,9 @@ export class Engine extends IEngine {
       const eventName = this.sequence.config.events.proposed;
       this.sequence.logger.info(`Emitting ${eventName}`);
       this.sequence.logger.debug({ type: "event", event: eventName, data: pending });
-      this.sequence.events.emit(eventName, pending);
+      this.sequence.client.events.emit(eventName, pending);
+      // emit "proposal" alias for proposed
+      this.sequence.client.events.emit(this.sequence.config.events.proposal, pending.proposal);
       if (isSignalTypePairing(pending.proposal.signal)) {
         // send proposal signal through existing pairing
         const request = formatJsonRpcRequest(
@@ -735,54 +746,66 @@ export class Engine extends IEngine {
   }
 
   private registerEventListeners(): void {
+    // Relayer Payload Events
+    this.sequence.client.events.on(
+      RELAYER_EVENTS.payload,
+      (payloadEvent: SequenceTypes.PayloadEvent) => {
+        if (this.sequence.pending.topics.includes(payloadEvent.topic)) {
+          this.onPendingPayloadEvent(payloadEvent);
+        } else if (this.sequence.settled.topics.includes(payloadEvent.topic)) {
+          this.onMessage(payloadEvent);
+        }
+      },
+    );
     // Pending Subscription Events
-    this.sequence.pending.on(
-      SUBSCRIPTION_EVENTS.payload,
-      (payloadEvent: SubscriptionEvent.Payload) => this.onPendingPayloadEvent(payloadEvent),
-    );
-    this.sequence.pending.on(
+    this.sequence.client.events.on(
       SUBSCRIPTION_EVENTS.created,
-      (createdEvent: SubscriptionEvent.Created<SequenceTypes.Pending>) =>
-        this.onPendingStatusEvent(createdEvent),
+      (createdEvent: SubscriptionEvent.Created<SequenceTypes.Pending>) => {
+        if (createdEvent.tag !== this.getPendingSubscriptionTag()) return;
+        this.onPendingStatusEvent(createdEvent);
+      },
     );
-    this.sequence.pending.on(
+    this.sequence.client.events.on(
       SUBSCRIPTION_EVENTS.updated,
-      (updatedEvent: SubscriptionEvent.Updated<SequenceTypes.Pending>) =>
-        this.onPendingStatusEvent(updatedEvent),
+      (updatedEvent: SubscriptionEvent.Updated<SequenceTypes.Pending>) => {
+        if (updatedEvent.tag !== this.getPendingSubscriptionTag()) return;
+        this.onPendingStatusEvent(updatedEvent);
+      },
     );
     // Settled Subscription Events
-    this.sequence.settled.on(
-      SUBSCRIPTION_EVENTS.payload,
-      (payloadEvent: SubscriptionEvent.Payload) => this.onMessage(payloadEvent),
-    );
-    this.sequence.settled.on(
+    this.sequence.client.events.on(
       SUBSCRIPTION_EVENTS.created,
       (createdEvent: SubscriptionEvent.Created<SequenceTypes.Settled>) => {
-        const { data: settled } = createdEvent;
+        if (createdEvent.tag !== this.getSettledSubscriptionTag()) return;
+        const { sequence: settled } = createdEvent;
         const eventName = this.sequence.config.events.settled;
         this.sequence.logger.info(`Emitting ${eventName}`);
         this.sequence.logger.debug({ type: "event", event: eventName, data: settled });
-        this.sequence.events.emit(eventName, settled);
+        this.sequence.client.events.emit(eventName, settled);
+        // emit "created" alias for settled
+        this.sequence.client.events.emit(this.sequence.config.events.created, settled);
       },
     );
-    this.sequence.settled.on(
+    this.sequence.client.events.on(
       SUBSCRIPTION_EVENTS.updated,
       (updatedEvent: SubscriptionEvent.Updated<SequenceTypes.Settled>) => {
-        const { data: settled, update } = updatedEvent;
+        if (updatedEvent.tag !== this.getSettledSubscriptionTag()) return;
+        const { sequence: settled, update } = updatedEvent;
         const eventName = this.sequence.config.events.updated;
         this.sequence.logger.info(`Emitting ${eventName}`);
         this.sequence.logger.debug({ type: "event", event: eventName, data: settled, update });
-        this.sequence.events.emit(eventName, settled, update);
+        this.sequence.client.events.emit(eventName, settled, update);
       },
     );
-    this.sequence.settled.on(
+    this.sequence.client.events.on(
       SUBSCRIPTION_EVENTS.deleted,
       async (deletedEvent: SubscriptionEvent.Deleted<SequenceTypes.Settled>) => {
-        const { data: settled, reason } = deletedEvent;
+        if (deletedEvent.tag !== this.getSettledSubscriptionTag()) return;
+        const { sequence: settled, reason } = deletedEvent;
         const eventName = this.sequence.config.events.deleted;
         this.sequence.logger.info(`Emitting ${eventName}`);
         this.sequence.logger.debug({ type: "event", event: eventName, data: settled, reason });
-        this.sequence.events.emit(eventName, settled, reason);
+        this.sequence.client.events.emit(eventName, settled, reason);
         const request = formatJsonRpcRequest(this.sequence.config.jsonrpc.delete, { reason });
         await this.sequence.history.delete(settled.topic);
         await this.sequence.client.relayer.publish(settled.topic, request, {
@@ -790,14 +813,14 @@ export class Engine extends IEngine {
         });
       },
     );
-    this.sequence.settled.on(SUBSCRIPTION_EVENTS.sync, () =>
-      this.sequence.events.emit(this.sequence.config.events.sync),
+    this.sequence.client.events.on(SUBSCRIPTION_EVENTS.sync, () =>
+      this.sequence.client.events.emit(this.sequence.config.events.sync),
     );
-    this.sequence.settled.on(SUBSCRIPTION_EVENTS.enabled, () =>
-      this.sequence.events.emit(this.sequence.config.events.enabled),
+    this.sequence.client.events.on(SUBSCRIPTION_EVENTS.enabled, () =>
+      this.sequence.client.events.emit(this.sequence.config.events.enabled),
     );
-    this.sequence.settled.on(SUBSCRIPTION_EVENTS.disabled, () =>
-      this.sequence.events.emit(this.sequence.config.events.disabled),
+    this.sequence.client.events.on(SUBSCRIPTION_EVENTS.disabled, () =>
+      this.sequence.client.events.emit(this.sequence.config.events.disabled),
     );
   }
 }

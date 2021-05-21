@@ -30,6 +30,7 @@ export const SESSION_STATUS = {
 export const SESSION_EVENTS: SessionTypes.Events = {
   proposed: "session_proposed",
   responded: "session_responded",
+  created: "session_created",
   settled: "session_settled",
   updated: "session_updated",
   deleted: "session_deleted",
@@ -38,6 +39,7 @@ export const SESSION_EVENTS: SessionTypes.Events = {
   enabled: "session_enabled",
   disabled: "session_disabled",
   sync: "session_sync",
+  proposal: "session_proposal",
   notification: "session_notification",
 };
 

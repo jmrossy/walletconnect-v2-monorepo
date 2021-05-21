@@ -1,4 +1,3 @@
-import { EventEmitter } from "events";
 import { Logger } from "pino";
 import { IClient, IJsonRpcHistory, JsonRpcRecord, RequestEvent } from "@walletconnect/types";
 import { ERROR } from "@walletconnect/utils";
@@ -14,8 +13,6 @@ import { HISTORY_CONTEXT, HISTORY_EVENTS } from "../constants";
 
 export class JsonRpcHistory extends IJsonRpcHistory {
   public records = new Map<number, JsonRpcRecord>();
-
-  public events = new EventEmitter();
 
   public context: string = HISTORY_CONTEXT;
 
@@ -78,7 +75,8 @@ export class JsonRpcHistory extends IJsonRpcHistory {
       chainId,
     };
     this.records.set(record.id, record);
-    this.events.emit(HISTORY_EVENTS.created, record);
+    const tag = this.getHistoryEventTag();
+    this.client.events.emit(HISTORY_EVENTS.created, record, tag);
   }
 
   public async update(topic: string, response: JsonRpcResponse): Promise<void> {
@@ -93,7 +91,8 @@ export class JsonRpcHistory extends IJsonRpcHistory {
       ? { error: response.error }
       : { result: response.result };
     this.records.set(record.id, record);
-    this.events.emit(HISTORY_EVENTS.updated, record);
+    const tag = this.getHistoryEventTag();
+    this.client.events.emit(HISTORY_EVENTS.updated, record, tag);
   }
 
   public async get(topic: string, id: number): Promise<JsonRpcRecord> {
@@ -120,7 +119,8 @@ export class JsonRpcHistory extends IJsonRpcHistory {
       if (record.topic === topic) {
         if (typeof id !== "undefined" && record.id !== id) return;
         this.records.delete(record.id);
-        this.events.emit(HISTORY_EVENTS.deleted, record);
+        const tag = this.getHistoryEventTag();
+        this.client.events.emit(HISTORY_EVENTS.deleted, record, tag);
       }
     });
   }
@@ -132,37 +132,29 @@ export class JsonRpcHistory extends IJsonRpcHistory {
     return record.topic === topic;
   }
 
-  public on(event: string, listener: any): void {
-    this.events.on(event, listener);
-  }
-
-  public once(event: string, listener: any): void {
-    this.events.once(event, listener);
-  }
-
-  public off(event: string, listener: any): void {
-    this.events.off(event, listener);
-  }
-
-  public removeListener(event: string, listener: any): void {
-    this.events.removeListener(event, listener);
-  }
-
   // ---------- Private ----------------------------------------------- //
 
-  private getNestedContext(length: number) {
+  private getNestedContext(length = 2): string[] {
     const nestedContext = getLoggerContext(this.logger).split("/");
     return nestedContext.slice(nestedContext.length - length, nestedContext.length);
   }
 
-  private getHistoryContext() {
-    return this.getNestedContext(2).join(" ");
+  private getHistoryContext(): string {
+    return this.getNestedContext().join(" ");
+  }
+
+  private getHistoryStorageKey(): string {
+    return this.getNestedContext().join(":");
+  }
+
+  private getHistoryEventTag(): string {
+    return this.getNestedContext().join("/");
   }
 
   private getStorageKey() {
     const storageKeyPrefix = `${this.client.protocol}@${this.client.version}:${this.client.context}`;
-    const recordContext = this.getNestedContext(2).join(":");
-    return `${storageKeyPrefix}//${recordContext}`;
+    const historyStorageKey = this.getHistoryStorageKey();
+    return `${storageKeyPrefix}//${historyStorageKey}`;
   }
 
   private async getRecord(id: number): Promise<JsonRpcRecord> {
@@ -181,7 +173,7 @@ export class JsonRpcHistory extends IJsonRpcHistory {
 
   private async persist() {
     await this.client.storage.setItem<JsonRpcRecord[]>(this.getStorageKey(), this.values);
-    this.events.emit(HISTORY_EVENTS.sync);
+    this.client.events.emit(HISTORY_EVENTS.sync);
   }
 
   private async restore() {
@@ -224,37 +216,37 @@ export class JsonRpcHistory extends IJsonRpcHistory {
   private async isEnabled(): Promise<void> {
     if (!this.cached.length) return;
     return new Promise(resolve => {
-      this.events.once(HISTORY_EVENTS.enabled, () => resolve());
+      this.client.events.once(HISTORY_EVENTS.enabled, () => resolve());
     });
   }
 
   private async enable(): Promise<void> {
     this.cached = [];
-    this.events.emit(HISTORY_EVENTS.enabled);
+    this.client.events.emit(HISTORY_EVENTS.enabled);
   }
 
   private async disable(): Promise<void> {
     if (!this.cached.length) {
       this.cached = this.values;
     }
-    this.events.emit(HISTORY_EVENTS.disabled);
+    this.client.events.emit(HISTORY_EVENTS.disabled);
   }
 
   private registerEventListeners(): void {
-    this.events.on(HISTORY_EVENTS.created, (record: JsonRpcRecord) => {
+    this.client.events.on(HISTORY_EVENTS.created, (record: JsonRpcRecord) => {
       const eventName = HISTORY_EVENTS.created;
       this.logger.info(`Emitting ${eventName}`);
       this.logger.debug({ type: "event", event: eventName, record });
       this.persist();
     });
-    this.events.on(HISTORY_EVENTS.updated, (record: JsonRpcRecord) => {
+    this.client.events.on(HISTORY_EVENTS.updated, (record: JsonRpcRecord) => {
       const eventName = HISTORY_EVENTS.updated;
       this.logger.info(`Emitting ${eventName}`);
       this.logger.debug({ type: "event", event: eventName, record });
       this.persist();
     });
 
-    this.events.on(HISTORY_EVENTS.deleted, (record: JsonRpcRecord) => {
+    this.client.events.on(HISTORY_EVENTS.deleted, (record: JsonRpcRecord) => {
       const eventName = HISTORY_EVENTS.deleted;
       this.logger.info(`Emitting ${eventName}`);
       this.logger.debug({ type: "event", event: eventName, record });

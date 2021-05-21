@@ -1,6 +1,5 @@
 import {
   ErrorResponse,
-  IEvents,
   JsonRpcRequest,
   JsonRpcResponse,
   RequestArguments,
@@ -18,7 +17,7 @@ export interface JsonRpcRecord {
   response?: { result: any } | { error: ErrorResponse };
 }
 
-export abstract class IJsonRpcHistory extends IEvents {
+export abstract class IJsonRpcHistory {
   public records = new Map<number, JsonRpcRecord>();
 
   public abstract readonly context: string;
@@ -31,9 +30,7 @@ export abstract class IJsonRpcHistory extends IEvents {
 
   public abstract readonly pending: RequestEvent[];
 
-  constructor(public client: IClient, public logger: Logger) {
-    super();
-  }
+  constructor(public client: IClient, public logger: Logger) {}
 
   public abstract init(): Promise<void>;
 

@@ -23,8 +23,6 @@ export class Pairing extends IPairing {
   public settled: Subscription<PairingTypes.Settled>;
   public history: JsonRpcHistory;
 
-  public events = new EventEmitter();
-
   public context: string = PAIRING_CONTEXT;
 
   public config = {
@@ -80,7 +78,7 @@ export class Pairing extends IPairing {
   }
 
   get values(): PairingTypes.Settled[] {
-    return this.settled.values.map(x => x.data);
+    return this.settled.values.map(x => x.sequence);
   }
 
   public create(params?: PairingTypes.CreateParams): Promise<PairingTypes.Settled> {
@@ -109,22 +107,6 @@ export class Pairing extends IPairing {
 
   public notify(params: PairingTypes.NotificationEvent): Promise<void> {
     return this.engine.notify(params);
-  }
-
-  public on(event: string, listener: any): void {
-    this.events.on(event, listener);
-  }
-
-  public once(event: string, listener: any): void {
-    this.events.once(event, listener);
-  }
-
-  public off(event: string, listener: any): void {
-    this.events.off(event, listener);
-  }
-
-  public removeListener(event: string, listener: any): void {
-    this.events.removeListener(event, listener);
   }
 
   public async mergeUpdate(topic: string, update: PairingTypes.Update) {

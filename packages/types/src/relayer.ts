@@ -17,18 +17,24 @@ export declare namespace RelayerTypes {
   export interface SubscribeOptions {
     relay: ProtocolOptions;
   }
+
+  export interface UnsubscribeOptions extends SubscribeOptions {
+    id?: string;
+  }
 }
 
-export abstract class IRelayer extends IEvents {
+export abstract class IRelayer {
   public abstract provider: IJsonRpcProvider;
 
   public abstract context: string;
 
   public abstract readonly connected: boolean;
 
-  constructor(public client: IClient, public logger: Logger, provider?: string | IJsonRpcProvider) {
-    super();
-  }
+  constructor(
+    public client: IClient,
+    public logger: Logger,
+    provider?: string | IJsonRpcProvider,
+  ) {}
 
   public abstract init(): Promise<void>;
 
@@ -38,11 +44,7 @@ export abstract class IRelayer extends IEvents {
     opts?: RelayerTypes.PublishOptions,
   ): Promise<void>;
 
-  public abstract subscribe(
-    topic: string,
-    listener: (payload: JsonRpcPayload) => void,
-    opts?: RelayerTypes.SubscribeOptions,
-  ): Promise<string>;
+  public abstract subscribe(topic: string, opts?: RelayerTypes.SubscribeOptions): Promise<string>;
 
-  public abstract unsubscribe(id: string, opts?: RelayerTypes.SubscribeOptions): Promise<void>;
+  public abstract unsubscribe(topic: string, opts?: RelayerTypes.UnsubscribeOptions): Promise<void>;
 }

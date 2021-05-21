@@ -1,71 +1,65 @@
-import { JsonRpcPayload, IEvents } from "@json-rpc-tools/types";
 import { Logger } from "pino";
 
 import { IClient } from "./client";
 import { Reason } from "./misc";
 import { RelayerTypes } from "./relayer";
+import { SequenceTypes } from "./sequence";
 
 export interface SubscriptionOptions extends RelayerTypes.SubscribeOptions {
   expiry?: number;
 }
 
-export interface SubscriptionParams<Data> extends SubscriptionOptions {
-  id: string;
+export type DefaultSequence = SequenceTypes.Pending | SequenceTypes.Settled;
+
+export interface SubscriptionParams<Sequence = DefaultSequence> extends SubscriptionOptions {
   topic: string;
-  data: Data;
+  sequence: Sequence;
   expiry: number;
 }
 
 export declare namespace SubscriptionEvent {
-  export interface Payload {
+  export interface Created<Sequence = DefaultSequence> {
+    tag: string;
     topic: string;
-    payload: JsonRpcPayload;
+    sequence: Sequence;
+    opts: SubscriptionOptions;
   }
 
-  export interface Created<T> {
+  export interface Updated<Sequence = DefaultSequence> {
+    tag: string;
     topic: string;
-    data: T;
+    sequence: Sequence;
+    update: Partial<Sequence>;
   }
 
-  export interface Updated<T> {
+  export interface Deleted<Sequence = DefaultSequence> {
+    tag: string;
     topic: string;
-    data: T;
-    update: Partial<T>;
-  }
-
-  export interface Deleted<T> {
-    topic: string;
-    data: T;
+    sequence: Sequence;
     reason: Reason;
   }
 }
 
 export type SubscriptionEntries<T> = Record<string, SubscriptionParams<T>>;
 
-export abstract class ISubscription<Data> extends IEvents {
-  public abstract subscriptions = new Map<string, SubscriptionParams<Data>>();
+export abstract class ISubscription<Sequence = DefaultSequence> {
+  public abstract subscriptions = new Map<string, SubscriptionParams<Sequence>>();
 
   public abstract readonly length: number;
 
   public abstract readonly topics: string[];
 
-  public abstract readonly values: SubscriptionParams<Data>[];
+  public abstract readonly values: SubscriptionParams<Sequence>[];
 
-  constructor(public client: IClient, public logger: Logger, public context: string) {
-    super();
-  }
+  constructor(public client: IClient, public logger: Logger, public context: string) {}
 
   public abstract init(): Promise<void>;
 
-  public abstract set(topic: string, data: Data, opts: SubscriptionOptions): Promise<void>;
+  public abstract set(topic: string, data: Sequence, opts: SubscriptionOptions): Promise<void>;
 
-  public abstract get(topic: string): Promise<Data>;
+  public abstract get(topic: string): Promise<Sequence>;
 
-  public abstract update(topic: string, update: Partial<Data>): Promise<void>;
+  public abstract update(topic: string, update: Partial<Sequence>): Promise<void>;
 
   public abstract delete(topic: string, reason: Reason): Promise<void>;
-
-  // ---------- Protected ----------------------------------------------- //
-
-  protected abstract onPayload(payloadEvent: SubscriptionEvent.Payload): Promise<any>;
 }

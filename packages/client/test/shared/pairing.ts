@@ -33,14 +33,14 @@ export async function testPairingWithoutSession(clients: InitializedClients): Pr
       });
     }),
     new Promise<void>(async (resolve, reject) => {
-      clients.a.pairing.pending.on(SUBSCRIPTION_EVENTS.created, async () => {
+      clients.a.on(SUBSCRIPTION_EVENTS.created, async () => {
         clients.a.logger.warn(`TEST >> Pairing Proposed`);
         time.start("pairing");
         resolve();
       });
     }),
     new Promise<void>(async (resolve, reject) => {
-      clients.b.pairing.pending.on(SUBSCRIPTION_EVENTS.deleted, async () => {
+      clients.b.on(SUBSCRIPTION_EVENTS.deleted, async () => {
         clients.b.logger.warn(`TEST >> Pairing Acknowledged`);
         time.stop("pairing");
         resolve();

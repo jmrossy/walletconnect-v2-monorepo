@@ -29,6 +29,7 @@ export const PAIRING_STATUS = {
 export const PAIRING_EVENTS: PairingTypes.Events = {
   proposed: "pairing_proposed",
   responded: "pairing_responded",
+  created: "pairing_created",
   settled: "pairing_settled",
   updated: "pairing_updated",
   deleted: "pairing_deleted",
@@ -37,5 +38,6 @@ export const PAIRING_EVENTS: PairingTypes.Events = {
   enabled: "pairing_enabled",
   disabled: "pairing_disabled",
   sync: "pairing_sync",
+  proposal: "pairing_proposal",
   notification: "pairing_notification",
 };

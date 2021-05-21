@@ -1,7 +1,6 @@
 import { Logger } from "pino";
 import {
   JsonRpcPayload,
-  IEvents,
   RequestArguments,
   JsonRpcRequest,
   JsonRpcResponse,
@@ -31,6 +30,7 @@ export declare namespace SequenceTypes {
   export interface Events {
     proposed: string;
     responded: string;
+    created: string;
     settled: string;
     updated: string;
     deleted: string;
@@ -39,6 +39,7 @@ export declare namespace SequenceTypes {
     enabled: string;
     disabled: string;
     sync: string;
+    proposal: string;
     notification: string;
   }
   export interface JsonRpc {
@@ -268,7 +269,7 @@ export abstract class ISequence<
   Signal = SequenceTypes.Signal,
   DefaultSignalParams = SequenceTypes.DefaultSignalParams,
   ProposedPermissions = SequenceTypes.ProposedPermissions
-> extends IEvents {
+> {
   // pending subscriptions
   public abstract pending: ISubscription<Pending>;
   // settled subscriptions
@@ -307,9 +308,7 @@ export abstract class ISequence<
     Participant
   >;
 
-  constructor(public client: IClient, public logger: Logger) {
-    super();
-  }
+  constructor(public client: IClient, public logger: Logger) {}
 
   // initialize with persisted state
   public abstract init(): Promise<void>;

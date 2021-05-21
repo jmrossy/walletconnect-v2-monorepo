@@ -1,9 +1,9 @@
 import { EventEmitter } from "events";
 import { Logger } from "pino";
 import { generateChildLogger } from "@pedrouid/pino-utils";
-import { RelayerTypes, IRelayer, IClient } from "@walletconnect/types";
+import { RelayerTypes, IRelayer, IClient, SubscriptionEvent } from "@walletconnect/types";
 import { RelayJsonRpc, RELAY_JSONRPC } from "relay-provider";
-import { decrypt, formatRelayRpcUrl } from "@walletconnect/utils";
+import { formatRelayRpcUrl } from "@walletconnect/utils";
 import { utf8ToHex, hexToUtf8 } from "enc-utils";
 import {
   IJsonRpcProvider,
@@ -22,12 +22,15 @@ import {
   RELAYER_DEFAULT_RPC_URL,
   RELAYER_DEFAULT_PUBLISH_TTL,
   RELAYER_EVENTS,
+  SUBSCRIPTION_EVENTS,
 } from "../constants";
 
 export class Relayer extends IRelayer {
   public events = new EventEmitter();
 
   public provider: IJsonRpcProvider;
+
+  public subscriptions = new Map<string, string[]>();
 
   public context: string = RELAYER_CONTEXT;
 
@@ -80,11 +83,7 @@ export class Relayer extends IRelayer {
     }
   }
 
-  public async subscribe(
-    topic: string,
-    listener: (payload: JsonRpcPayload) => void,
-    opts?: RelayerTypes.SubscribeOptions,
-  ): Promise<string> {
+  public async subscribe(topic: string, opts?: RelayerTypes.SubscribeOptions): Promise<string> {
     this.logger.debug(`Subscribing Topic`);
     this.logger.trace({ type: "method", method: "subscribe", params: { topic, opts } });
     try {
@@ -99,12 +98,14 @@ export class Relayer extends IRelayer {
       this.logger.debug(`Outgoing Relay Payload`);
       this.logger.trace({ type: "payload", direction: "outgoing", request });
       const id = await this.provider.request(request);
+      const subscriptions = this.subscriptions.get(topic) || [];
+      this.subscriptions.set(topic, [...subscriptions, id]);
       this.events.on(id, async ({ message }) => {
         const hasKeys = await this.client.crypto.hasKeys(topic);
         const payload = safeJsonParse(
           hasKeys ? await this.client.crypto.decrypt(topic, message) : hexToUtf8(message),
         );
-        listener(payload);
+        this.events.emit(RELAYER_EVENTS.payload, { topic, payload });
       });
       this.logger.debug(`Successfully Subscribed Topic`);
       this.logger.trace({ type: "method", method: "subscribe", request });
@@ -116,25 +117,19 @@ export class Relayer extends IRelayer {
     }
   }
 
-  public async unsubscribe(id: string, opts?: RelayerTypes.SubscribeOptions): Promise<void> {
+  public async unsubscribe(topic: string, opts?: RelayerTypes.UnsubscribeOptions): Promise<void> {
     this.logger.debug(`Unsubscribing Topic`);
-    this.logger.trace({ type: "method", method: "unsubscribe", params: { id, opts } });
+    this.logger.trace({ type: "method", method: "unsubscribeTopic", params: { topic, opts } });
     try {
-      const protocol = opts?.relay.protocol || RELAYER_DEFAULT_PROTOCOL;
-      const jsonRpc = getRelayProtocolJsonRpc(protocol);
-      const request: RequestArguments<RelayJsonRpc.UnsubscribeParams> = {
-        method: jsonRpc.unsubscribe,
-        params: {
-          id,
-        },
-      };
-      this.logger.debug(`Outgoing Relay Payload`);
-      this.logger.trace({ type: "payload", direction: "outgoing", request });
-
-      await this.provider.request(request);
-      this.events.removeAllListeners(id);
+      if (typeof opts?.id !== "undefined") {
+        await this.unsubscribeId(topic, opts?.id, opts);
+      } else {
+        const subscriptions = this.subscriptions.get(topic);
+        if (!subscriptions) return;
+        await Promise.all(subscriptions.map(id => this.unsubscribeId(topic, id, opts)));
+      }
       this.logger.debug(`Successfully Unsubscribed Topic`);
-      this.logger.trace({ type: "method", method: "unsubscribe", request });
+      this.logger.trace({ type: "method", method: "unsubscribeTopic" });
     } catch (e) {
       this.logger.debug(`Failed to Unsubscribe Topic`);
       this.logger.error(e);
@@ -186,6 +181,42 @@ export class Relayer extends IRelayer {
       : new JsonRpcProvider(rpcUrl);
   }
 
+  private async unsubscribeId(
+    topic: string,
+    id: string,
+    opts?: RelayerTypes.UnsubscribeOptions,
+  ): Promise<void> {
+    this.logger.debug(`Unsubscribing Topic`);
+    this.logger.trace({ type: "method", method: "unsubscribe", params: { id, opts } });
+    try {
+      const protocol = opts?.relay.protocol || RELAYER_DEFAULT_PROTOCOL;
+      const jsonRpc = getRelayProtocolJsonRpc(protocol);
+      const request: RequestArguments<RelayJsonRpc.UnsubscribeParams> = {
+        method: jsonRpc.unsubscribe,
+        params: {
+          id,
+        },
+      };
+      this.logger.debug(`Outgoing Relay Payload`);
+      this.logger.trace({ type: "payload", direction: "outgoing", request });
+      await this.provider.request(request);
+      this.events.removeAllListeners(id);
+      const subscriptions = this.subscriptions.get(topic);
+      if (subscriptions) {
+        this.subscriptions.set(
+          topic,
+          subscriptions.filter(x => x === id),
+        );
+      }
+      this.logger.debug(`Successfully Unsubscribed Topic`);
+      this.logger.trace({ type: "method", method: "unsubscribe", request });
+    } catch (e) {
+      this.logger.debug(`Failed to Unsubscribe Topic`);
+      this.logger.error(e);
+      throw e;
+    }
+  }
+
   private registerEventListeners(): void {
     this.provider.on("payload", (payload: JsonRpcPayload) => this.onPayload(payload));
     this.provider.on("connect", () => this.events.emit(RELAYER_EVENTS.connect));
@@ -194,6 +225,12 @@ export class Relayer extends IRelayer {
       this.provider.connect();
     });
     this.provider.on("error", e => this.events.emit(RELAYER_EVENTS.error, e));
+    this.client.events.on(SUBSCRIPTION_EVENTS.created, async (event: SubscriptionEvent.Created) => {
+      await this.subscribe(event.topic, event.opts);
+    });
+    this.client.events.on(SUBSCRIPTION_EVENTS.deleted, async (event: SubscriptionEvent.Created) => {
+      await this.unsubscribe(event.topic, event.opts);
+    });
   }
 }
 

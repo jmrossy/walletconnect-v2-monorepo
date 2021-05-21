@@ -1,8 +1,6 @@
 import { JsonRpcPayload } from "@json-rpc-tools/types";
-import { AppMetadata } from "./misc";
 
 import { ISequence, SequenceTypes } from "./sequence";
-import { SubscriptionEvent } from "./subscription";
 
 export abstract class IEngine<
   Pending = SequenceTypes.Pending,
@@ -34,13 +32,13 @@ export abstract class IEngine<
 
   protected abstract propose(params?: ProposeParams): Promise<Pending>;
   protected abstract settle(params: SettleParams): Promise<Settled>;
-  protected abstract onResponse(payloadEvent: SubscriptionEvent.Payload): Promise<void>;
-  protected abstract onAcknowledge(payloadEvent: SubscriptionEvent.Payload): Promise<void>;
-  protected abstract onMessage(payloadEvent: SubscriptionEvent.Payload): Promise<void>;
-  protected abstract onPayload(payloadEvent: SubscriptionEvent.Payload): Promise<void>;
-  protected abstract onUpdate(payloadEvent: SubscriptionEvent.Payload): Promise<void>;
-  protected abstract onUpgrade(payloadEvent: SubscriptionEvent.Payload): Promise<void>;
-  protected abstract onNotification(event: SubscriptionEvent.Payload): Promise<void>;
+  protected abstract onResponse(payloadEvent: SequenceTypes.PayloadEvent): Promise<void>;
+  protected abstract onAcknowledge(payloadEvent: SequenceTypes.PayloadEvent): Promise<void>;
+  protected abstract onMessage(payloadEvent: SequenceTypes.PayloadEvent): Promise<void>;
+  protected abstract onPayload(payloadEvent: SequenceTypes.PayloadEvent): Promise<void>;
+  protected abstract onUpdate(payloadEvent: SequenceTypes.PayloadEvent): Promise<void>;
+  protected abstract onUpgrade(payloadEvent: SequenceTypes.PayloadEvent): Promise<void>;
+  protected abstract onNotification(event: SequenceTypes.PayloadEvent): Promise<void>;
 
   protected abstract handleUpdate(
     topic: string,
